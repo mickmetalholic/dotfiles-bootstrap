@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"bufio"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -150,8 +149,8 @@ func run(cfg config, r Runner, goos, home string, stdin io.Reader, stdout, stder
 	if !ok {
 		return 1
 	}
-	if !runPrivateHandoff(cfg, r, goos, source, stdout, stderr, env) {
-		return 1
+	if source != "" {
+		fmt.Fprintf(stdout, "ok: chezmoi source ready at %s\n", source)
 	}
 	fmt.Fprintln(stdout, "bootstrap complete")
 	return 0
@@ -241,8 +240,9 @@ func repoReadable(r Runner, repo string, env []string) bool {
 func prepareSSHKey(cfg config, r Runner, home string, stdin io.Reader, stdout, stderr io.Writer, env []string) bool {
 	sshDir := filepath.Join(home, ".ssh")
 	privateKey := filepath.Join(sshDir, "id_ed25519")
-	publicKey := privateKey + ".pub"
-	if _, err := os.Stat(publicKey); errors.Is(err, os.ErrNotExist) {
+	publicKey := findPublicSSHKey(sshDir)
+	if publicKey == "" {
+		publicKey = privateKey + ".pub"
 		if cfg.dryRun {
 			fmt.Fprintf(stdout, "dry-run: would generate SSH key at %s\n", privateKey)
 		} else {
@@ -285,6 +285,34 @@ func prepareSSHKey(cfg config, r Runner, home string, stdin io.Reader, stdout, s
 	return true
 }
 
+func findPublicSSHKey(sshDir string) string {
+	for _, name := range []string{"id_ed25519.pub", "id_ecdsa.pub", "id_rsa.pub"} {
+		path := filepath.Join(sshDir, name)
+		if isReadablePublicKey(path) {
+			return path
+		}
+	}
+	matches, err := filepath.Glob(filepath.Join(sshDir, "*.pub"))
+	if err != nil {
+		return ""
+	}
+	for _, path := range matches {
+		if isReadablePublicKey(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+func isReadablePublicKey(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	text := strings.TrimSpace(string(data))
+	return strings.HasPrefix(text, "ssh-") || strings.HasPrefix(text, "ecdsa-")
+}
+
 func ensureChezmoiSource(cfg config, r Runner, repo string, stdout, stderr io.Writer, env []string) (string, bool) {
 	if source := chezmoiSource(r, env); source != "" {
 		fmt.Fprintf(stdout, "ok: chezmoi source exists at %s\n", source)
@@ -315,43 +343,6 @@ func chezmoiSource(r Runner, env []string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-func runPrivateHandoff(cfg config, r Runner, goos, source string, stdout, stderr io.Writer, env []string) bool {
-	if source == "" {
-		if cfg.dryRun {
-			fmt.Fprintln(stdout, "dry-run: would run private repository handoff after chezmoi init")
-			return true
-		}
-		fmt.Fprintln(stderr, "cannot run private handoff without chezmoi source path")
-		return false
-	}
-	if goos == "windows" {
-		script := filepath.Join(source, "install.ps1")
-		if _, err := os.Stat(script); err != nil {
-			fmt.Fprintf(stderr, "private handoff script missing: %s\n", script)
-			return false
-		}
-		if cfg.dryRun {
-			fmt.Fprintf(stdout, "dry-run: would run %s\n", script)
-			return true
-		}
-		return r.Run("pwsh", []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script}, env) == nil
-	}
-	script := filepath.Join(source, "install.sh")
-	if _, err := os.Stat(script); err != nil {
-		fmt.Fprintf(stderr, "private handoff script missing: %s\n", script)
-		return false
-	}
-	if cfg.dryRun {
-		fmt.Fprintf(stdout, "dry-run: would run %s\n", script)
-		return true
-	}
-	if err := r.Run("sh", []string{script}, env); err != nil {
-		fmt.Fprintf(stderr, "private handoff failed: %v\n", err)
-		return false
-	}
-	return true
 }
 
 func hasCommand(r Runner, name string) bool {
