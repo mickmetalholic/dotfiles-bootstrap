@@ -2,7 +2,7 @@
 
 Public bootstrapper for the private `mickmetalholic/dotfiles` repository.
 
-This repository is intentionally small and stable. It only prepares a new machine to read the private dotfiles repository over GitHub SSH, initializes chezmoi, and hands off to the private repository for all real setup.
+This repository is intentionally small and stable. It owns first-run setup for a new machine: install or confirm the pre-init tools, install or repair the public `dot` binary, prepare GitHub SSH access, and initialize the private dotfiles repository with chezmoi.
 
 ## Install
 
@@ -21,11 +21,13 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/mickmetalholic/dotfiles-bo
 The bootstrapper:
 
 - installs or confirms Git, OpenSSH, and chezmoi where supported
+- installs or repairs `dot` from public dotfiles-bootstrap GitHub Releases
+- writes `dot` to `~/.local/share/dotfiles/bin/dot` on macOS/Linux
+- writes `dot.exe` to `%USERPROFILE%\.local\share\dotfiles\bin\dot.exe` on Windows
 - checks access to `git@github.com:mickmetalholic/dotfiles.git`
-- generates `~/.ssh/id_ed25519` when no default public key exists
+- prints an existing public SSH key, or generates `~/.ssh/id_ed25519` when no public key exists
 - prints the public key and points to <https://github.com/settings/keys>
 - runs `chezmoi init` after private repository access works
-- runs the private repository setup handoff
 
 For a fork or test remote:
 
@@ -39,11 +41,26 @@ Non-interactive setup requires GitHub SSH access to be configured before running
 dotfiles-bootstrap --non-interactive
 ```
 
+If repository access is not already configured, the bootstrapper prints the public key to add, the GitHub SSH key settings URL, and the exact verification command:
+
+```sh
+git ls-remote git@github.com:mickmetalholic/dotfiles.git HEAD
+```
+
+Interactive runs wait for you to add the key and then retry. Non-interactive runs exit with those instructions instead of blocking.
+
 ## Boundary
 
-This repository does not contain private dotfiles, package catalogs, host profiles, SSH private keys, GitHub tokens, or daily `dot` workflows. After `chezmoi init`, those responsibilities belong to the private `dotfiles` repository.
+This repository does not contain private dotfiles, package catalogs, host profiles, SSH private keys, GitHub tokens, or private-repository install scripts. It does not run `install.sh`, `install.ps1`, or other setup scripts from the private dotfiles source.
 
-Rule of thumb: if a task can run after `chezmoi init`, it belongs in `dotfiles`, not here.
+Command responsibilities:
+
+- `dotfiles-bootstrap`: first-run bootstrap, Git/OpenSSH/chezmoi readiness, GitHub SSH key guidance, `chezmoi init`, and `dot` binary install or repair
+- `dot`: system package setup, doctor checks, and validation
+- `chezmoi`: config apply, update, diff, and edit workflows
+- `mise`: runtime and tool versions
+
+Rule of thumb: if a task needs to repair a missing `dot` binary or initialize private source access, it belongs here. If it manages the configured system after `chezmoi init`, it belongs to `dot`, chezmoi, or mise.
 
 ## Release Artifacts
 
@@ -56,12 +73,17 @@ dotfiles-bootstrap_linux_amd64.tar.gz
 dotfiles-bootstrap_linux_arm64.tar.gz
 dotfiles-bootstrap_windows_amd64.zip
 dotfiles-bootstrap_windows_arm64.zip
+dot_darwin_amd64.tar.gz
+dot_darwin_arm64.tar.gz
+dot_linux_amd64.tar.gz
+dot_linux_arm64.tar.gz
+dot_windows_amd64.zip
+dot_windows_arm64.zip
 checksums.txt
+dot_checksums.txt
 ```
 
-Install scripts verify checksums before executing downloaded artifacts.
-
-The same public release may also contain `dot_*` archives and `dot_checksums.txt` mirrored from the private `dotfiles` repository. Those artifacts are consumed by the private repository's `scripts/install-dot-binary.*` helpers after `chezmoi init`.
+Install scripts verify checksums before executing or installing downloaded artifacts. `dot` artifacts may be listed in `checksums.txt`; when they are published with a separate checksum file, installers verify them with `dot_checksums.txt`.
 
 ## Development
 
